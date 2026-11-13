@@ -1,0 +1,35 @@
+name: Import original game assets
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/import-original.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Copy the original game files without overwriting Kombucha artwork
+        run: |
+          git clone --depth 1 https://github.com/djrozzo-glitch/shiba_run.git "$RUNNER_TEMP/shiba_run"
+          rsync -a --ignore-existing --exclude='.git/' "$RUNNER_TEMP/shiba_run/" ./
+          test -f index.html
+          test -f kombucha-atlas.png
+          test -f worlds/amsterdam/day.webp
+          test -f audio/bg_music_loop.mp3
+      - name: Commit and push imported game assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Import original runner assets into Kombucha"
+            git push
+          fi
