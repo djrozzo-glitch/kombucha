@@ -96,9 +96,10 @@ let W=400,H=750,DPR=1,ground=580,scale=1,last=0,mode='ready',clock=0,meters=0,bo
 try{best=Number(localStorage.getItem('kombucha-run-best')||0)}catch(e){}bestEl.textContent=String(best).padStart(4,'0');
 const dog={x:95,y:0,vy:0,jumps:0,rot:0,anim:'idle',animTime:0,actionTime:0,spinTime:0};
 const skinCatalog=[
-  {id:'classic',name:'Blackcurrant & Juniper',price:0,image:'skins/blackcurrant-juniper-atlas.webp'},
-  {id:'tarragon',name:'Tarragon & Cedar',price:25,image:'skins/tarragon-cedar-atlas.webp'},
-  {id:'raspberry',name:'Raspberry & Mint',price:50,image:'skins/raspberry-mint-atlas.webp'}
+  {id:'original',name:'Original Caribou',price:0,image:'kombucha-atlas.png'},
+  {id:'blackcurrant',name:'Blackcurrant & Juniper',price:25,image:'skins/blackcurrant-juniper-atlas.webp'},
+  {id:'tarragon',name:'Tarragon & Cedar',price:50,image:'skins/tarragon-cedar-atlas.webp'},
+  {id:'raspberry',name:'Raspberry & Mint',price:75,image:'skins/raspberry-mint-atlas.webp'}
 ];
 const WORLD_CATALOG=[
  {id:'tokyo',name:'Tokyo',tag:'JP',dayBg:'backgrounds/day-street.webp',nightBg:'backgrounds/night-street.webp',road:'warm',desc:'Lanterns, cats, ramen signs and sakura bonsai'},
@@ -180,17 +181,19 @@ function getCaribouAtlas(skinId){
   const img=skinImages[skinId];
   return img&&img.complete&&img.naturalWidth?img:fallbackCaribouAtlas;
 }
-let wallet=0,owned=['classic'],selectedSkin='classic',selectedWorld='tokyo';
+let wallet=0,owned=['original'],selectedSkin='original',selectedWorld='tokyo';
 try{
   wallet=Math.max(0,Number(localStorage.getItem('kombucha-run-wallet')||0)||0);
-  const saved=JSON.parse(localStorage.getItem('kombucha-run-owned')||'["classic"]');
+  const saved=JSON.parse(localStorage.getItem('kombucha-run-owned')||'["original"]');
   if(Array.isArray(saved)){
-    // Preserve older cosmetic purchases. A player who paid for Ninja, Samurai,
-    // or Hot Dog keeps a corresponding flavor without paying a second time.
-    const oldToNew={ninja:'tarragon',samurai:'raspberry',hotdog:'raspberry'};
-    owned=[...new Set(['classic',...saved.map(id=>oldToNew[id]||id).filter(id=>skinCatalog.some(s=>s.id===id))])];
+    // Original Caribou is free for everyone. Keep previously purchased flavors.
+    // Legacy Shiba purchases retain an unlocked flavor without another charge.
+    const oldToNew={classic:'original',ninja:'blackcurrant',samurai:'tarragon',hotdog:'raspberry'};
+    owned=[...new Set(['original',...saved.map(id=>oldToNew[id]||id).filter(id=>skinCatalog.some(s=>s.id===id))])];
   }
-  const oldSelection=localStorage.getItem('kombucha-run-skin');const sel=({ninja:'tarragon',samurai:'raspberry',hotdog:'raspberry'})[oldSelection]||oldSelection;if(owned.includes(sel))selectedSkin=sel;
+  const oldSelection=localStorage.getItem('kombucha-run-skin');
+  const sel=({classic:'original',ninja:'blackcurrant',samurai:'tarragon',hotdog:'raspberry'})[oldSelection]||oldSelection;
+  if(owned.includes(sel))selectedSkin=sel;
   const worldSel=localStorage.getItem('kombucha-run-world');const migrated={ny_day:'newyork',ny_night:'newyork',moscow_day:'moscow',moscow_night:'moscow'};if(WORLD_MAP[worldSel])selectedWorld=worldSel;else if(WORLD_MAP[migrated[worldSel]])selectedWorld=migrated[worldSel];
 }catch(e){}
 function currentWorld(){return WORLD_MAP[selectedWorld]||WORLD_CATALOG[0]}
