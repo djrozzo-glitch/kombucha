@@ -76,13 +76,14 @@ canvas{display:block;width:100vw;height:100dvh;touch-action:none}
 #panel .results .bottle-icon{width:23px;height:23px}
 @media(max-width:430px){.ozzy-logo{max-width:280px}#panel{padding:18px 17px 17px}#panel p{margin:9px 0 14px}#panel .shop-btn{margin-top:7px;padding:9px}}
 @media(max-height:670px){.ozzy-logo{max-width:245px}#panel p{font-size:13px;margin:7px 0}}
+.shop-meta{min-width:0;overflow-wrap:anywhere}.shop-row{min-width:0}.shop-meta small{line-height:1.3}
 </style>
 </head>
 <body>
 <canvas id="game" aria-label="Kombucha: The Caribou World Tour game"></canvas>
 <div id="hud"><div class="hud-box"><small>DISTANCE</small><span id="score">0000</span> m</div><div class="hud-right"><div class="hud-box"><small>BEST</small><span id="best">0000</span></div><div class="hud-box"><small>KOMBUCHA</small><span class="bone"><img src="assets/kombucha-bottle.webp" class="bottle-icon" alt=""> <span id="bones">0</span></span></div><button id="musicToggle" class="audio-toggle" aria-label="Toggle music" aria-pressed="true" title="Music">🎵</button><button id="effectsToggle" class="audio-toggle" aria-label="Toggle sound effects" aria-pressed="true" title="Effects">🔊</button></div></div>
 <button id="pauseToggle" aria-label="Pause game" title="Pause game">⏸</button>
-<div id="overlay"><div id="panel"><div class="eyebrow">ONE-TAP WORLD TOUR</div><img class="ozzy-logo" src="assets/kombucha-logo.png" alt="Kombucha: The Caribou World Tour" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><h1 class="logo-fallback">Kombucha:<br>The Caribou World Tour</h1><p>One caribou. One epic adventure.<br>Collect kombucha bottles, dodge trouble, run the world!</p><button id="start">LET'S RUN →</button><button class="shop-btn" id="openWorlds">🌍 CHANGE LOCATION</button><button class="shop-btn" id="openShop">🐾 CARIBOU WARDROBE</button><div class="hint">TAP ANYWHERE · SPACE · ↑</div></div></div>
+<div id="overlay"><div id="panel"><div class="eyebrow">ONE-TAP WORLD TOUR</div><img class="ozzy-logo" src="assets/kombucha-logo.png" alt="Kombucha: The Caribou World Tour" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><h1 class="logo-fallback">Kombucha:<br>The Caribou World Tour</h1><p>One caribou. One epic adventure.<br>Collect kombucha bottles, dodge trouble, run the world!</p><button id="start">LET'S RUN →</button><button class="shop-btn" id="openWorlds">🌍 CHANGE LOCATION</button><button class="shop-btn" id="openShop">🦌 CARIBOU FLAVORS</button><div class="hint">TAP ANYWHERE · SPACE · ↑</div></div></div>
 <div id="tip">TAP TO JUMP · DOUBLE JUMP!</div>
 <script>
 (() => {
@@ -95,10 +96,9 @@ let W=400,H=750,DPR=1,ground=580,scale=1,last=0,mode='ready',clock=0,meters=0,bo
 try{best=Number(localStorage.getItem('kombucha-run-best')||0)}catch(e){}bestEl.textContent=String(best).padStart(4,'0');
 const dog={x:95,y:0,vy:0,jumps:0,rot:0,anim:'idle',animTime:0,actionTime:0,spinTime:0};
 const skinCatalog=[
-  {id:'classic',name:'Classic Kombucha',price:0,image:'kombucha-atlas.png'},
-  {id:'ninja',name:'Ninja Shiba',price:25,image:'kombucha-atlas.png'},
-  {id:'samurai',name:'Samurai Shiba',price:50,image:'kombucha-atlas.png'},
-  {id:'hotdog',name:'Hot Dog Shiba',price:75,image:'kombucha-atlas.png'}
+  {id:'classic',name:'Blackcurrant & Juniper',price:0,image:'skins/blackcurrant-juniper-atlas.webp'},
+  {id:'tarragon',name:'Tarragon & Cedar',price:25,image:'skins/tarragon-cedar-atlas.webp'},
+  {id:'raspberry',name:'Raspberry & Mint',price:50,image:'skins/raspberry-mint-atlas.webp'}
 ];
 const WORLD_CATALOG=[
  {id:'tokyo',name:'Tokyo',tag:'JP',dayBg:'backgrounds/day-street.webp',nightBg:'backgrounds/night-street.webp',road:'warm',desc:'Lanterns, cats, ramen signs and sakura bonsai'},
@@ -170,13 +170,27 @@ const WORLD_CATALOG=[
   ]}
 ];
 const WORLD_MAP=Object.fromEntries(WORLD_CATALOG.map(w=>[w.id,w]));
-const skinImages={};for(const skin of skinCatalog){const im=new Image();im.src=skin.image;skinImages[skin.id]=im;}
+const skinImages={};
+const fallbackCaribouAtlas=new Image();fallbackCaribouAtlas.src='kombucha-atlas.png';
+for(const skin of skinCatalog){
+  const im=new Image(); im.decoding='async'; im.src=skin.image;
+  skinImages[skin.id]=im;
+}
+function getCaribouAtlas(skinId){
+  const img=skinImages[skinId];
+  return img&&img.complete&&img.naturalWidth?img:fallbackCaribouAtlas;
+}
 let wallet=0,owned=['classic'],selectedSkin='classic',selectedWorld='tokyo';
 try{
   wallet=Math.max(0,Number(localStorage.getItem('kombucha-run-wallet')||0)||0);
   const saved=JSON.parse(localStorage.getItem('kombucha-run-owned')||'["classic"]');
-  if(Array.isArray(saved))owned=['classic',...saved.filter(v=>skinCatalog.some(s=>s.id===v))];
-  const sel=localStorage.getItem('kombucha-run-skin');if(owned.includes(sel))selectedSkin=sel;
+  if(Array.isArray(saved)){
+    // Preserve older cosmetic purchases. A player who paid for Ninja, Samurai,
+    // or Hot Dog keeps a corresponding flavor without paying a second time.
+    const oldToNew={ninja:'tarragon',samurai:'raspberry',hotdog:'raspberry'};
+    owned=[...new Set(['classic',...saved.map(id=>oldToNew[id]||id).filter(id=>skinCatalog.some(s=>s.id===id))])];
+  }
+  const oldSelection=localStorage.getItem('kombucha-run-skin');const sel=({ninja:'tarragon',samurai:'raspberry',hotdog:'raspberry'})[oldSelection]||oldSelection;if(owned.includes(sel))selectedSkin=sel;
   const worldSel=localStorage.getItem('kombucha-run-world');const migrated={ny_day:'newyork',ny_night:'newyork',moscow_day:'moscow',moscow_night:'moscow'};if(WORLD_MAP[worldSel])selectedWorld=worldSel;else if(WORLD_MAP[migrated[worldSel]])selectedWorld=migrated[worldSel];
 }catch(e){}
 function currentWorld(){return WORLD_MAP[selectedWorld]||WORLD_CATALOG[0]}
@@ -190,7 +204,7 @@ function bindMenu(){
 function showHome(){
  stopMusic();mode='ready';syncPauseButton();overlay.classList.remove('hidden');panel.classList.remove('shop-panel');
  const world=currentWorld();
- panel.innerHTML=`<div class="eyebrow">ONE-TAP WORLD TOUR</div><img class="ozzy-logo" src="assets/kombucha-logo.png" alt="Kombucha: The Caribou World Tour" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><h1 class="logo-fallback">Kombucha:<br>The Caribou World Tour</h1><div class="world-current">CURRENT LOCATION · <strong>${world.name}</strong></div><p>One caribou. One epic adventure.<br>Collect kombucha bottles, dodge trouble, run the world!</p><button id="start">LET'S RUN →</button><button class="shop-btn" id="openWorlds">🌍 CHANGE LOCATION</button><button class="shop-btn" id="openShop">🐾 CARIBOU WARDROBE</button><div class="hint">TAP ANYWHERE · SPACE · ↑</div>`;
+ panel.innerHTML=`<div class="eyebrow">ONE-TAP WORLD TOUR</div><img class="ozzy-logo" src="assets/kombucha-logo.png" alt="Kombucha: The Caribou World Tour" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><h1 class="logo-fallback">Kombucha:<br>The Caribou World Tour</h1><div class="world-current">CURRENT LOCATION · <strong>${world.name}</strong></div><p>One caribou. One epic adventure.<br>Collect kombucha bottles, dodge trouble, run the world!</p><button id="start">LET'S RUN →</button><button class="shop-btn" id="openWorlds">🌍 CHANGE LOCATION</button><button class="shop-btn" id="openShop">🦌 CARIBOU FLAVORS</button><div class="hint">TAP ANYWHERE · SPACE · ↑</div>`;
  bindMenu();
 }
 function showShop(){
@@ -199,9 +213,9 @@ function showShop(){
   const got=owned.includes(s.id),on=selectedSkin===s.id;
   const disabled=on||(!got&&wallet<s.price);
   const txt=on?'EQUIPPED':got?'EQUIP':`<img src='assets/kombucha-bottle.webp' class='bottle-icon' alt=''> ${s.price}`;
-  return `<div class="shop-row"><div class="shop-pic" style="background-image:url('${s.image}')"></div><div class="shop-meta">${s.name}<small>${on?'Currently wearing':got?'Unlocked':s.price+' kombucha bottles'}</small></div><button class="shop-action" data-skin="${s.id}" ${disabled?'disabled':''}>${txt}</button></div>`;
+  return `<div class="shop-row"><div class="shop-pic" style="background-image:url('${s.image}'),url('kombucha-atlas.png')"></div><div class="shop-meta">${s.name}<small>${on?'Currently selected':got?'Unlocked':s.price+' kombucha bottles'}</small></div><button class="shop-action" data-skin="${s.id}" ${disabled?'disabled':''}>${txt}</button></div>`;
  }).join('');
- panel.innerHTML=`<div class="eyebrow" style="text-align:center">COSTUME SHOP</div><h1>CARIBOU WARDROBE</h1><div class="shop-balance"><img src='assets/kombucha-bottle.webp' class='bottle-icon' alt=''> YOUR KOMBUCHA: ${wallet}</div>${rows}<button class="shop-btn" id="backHome">← BACK TO MENU</button><div class="hint" style="text-align:center">Costumes are cosmetic · Saved on this device</div>`;
+ panel.innerHTML=`<div class="eyebrow" style="text-align:center">KOMBUCHA FLAVORS</div><h1>CARIBOU FLAVORS</h1><div class="shop-balance"><img src='assets/kombucha-bottle.webp' class='bottle-icon' alt=''> YOUR KOMBUCHA: ${wallet}</div>${rows}<button class="shop-btn" id="backHome">← BACK TO MENU</button><div class="hint" style="text-align:center">Flavors are cosmetic · Progress stays on this device</div>`;
  $('backHome').addEventListener('click',e=>{e.stopPropagation();showHome()});
  panel.querySelectorAll('[data-skin]').forEach(btn=>btn.addEventListener('click',e=>{
    e.stopPropagation();const id=btn.dataset.skin,s=skinCatalog.find(x=>x.id===id);
@@ -455,7 +469,7 @@ function makeObstacle(){
   for(let i=0;i<amount;i++)objects.push({type:'bone',x:W+(amount===1?20:i*34)*scale+68*scale,y:ground-rand(87,140)*scale,w:20*scale,h:18*scale,hit:false})}
 }
 function puff(x,y,color,n=9){for(let i=0;i<n;i++)particles.push({x,y,vx:rand(-170,170)*scale,vy:rand(-240,-60)*scale,life:rand(.3,.65),color,r:rand(3,7)*scale})}
-function gameOver(){stopMusic();mode='over';syncPauseButton();gameOverDelay=.62;anim('hurt');shake=9;playEffect('hit');if(Math.floor(meters)>best){best=Math.floor(meters);try{localStorage.setItem('kombucha-run-best',best)}catch(e){}}bestEl.textContent=String(best).padStart(4,'0');const world=currentWorld();panel.innerHTML=`<div class="eyebrow">THE ADVENTURE ENDS</div><h1>OOPS! 🐕</h1><p>Our brave caribou has met an obstacle in <strong>${world.name}</strong>.</p><div class="results"><div><small>DISTANCE</small>${Math.floor(meters)} m</div><div><small>KOMBUCHA</small>${bones} <img src='assets/kombucha-bottle.webp' class='bottle-icon' alt=''></div></div><button id="start">TRY AGAIN →</button><button class="shop-btn" id="openWorlds">🌍 CHANGE LOCATION</button><button class="shop-btn" id="openShop">🐾 CARIBOU WARDROBE</button><div class="hint">TAP TO TRY AGAIN</div>`;bindMenu()}
+function gameOver(){stopMusic();mode='over';syncPauseButton();gameOverDelay=.62;anim('hurt');shake=9;playEffect('hit');if(Math.floor(meters)>best){best=Math.floor(meters);try{localStorage.setItem('kombucha-run-best',best)}catch(e){}}bestEl.textContent=String(best).padStart(4,'0');const world=currentWorld();panel.innerHTML=`<div class="eyebrow">THE ADVENTURE ENDS</div><h1>OOPS! 🦌</h1><p>Our brave caribou has met an obstacle in <strong>${world.name}</strong>.</p><div class="results"><div><small>DISTANCE</small>${Math.floor(meters)} m</div><div><small>KOMBUCHA</small>${bones} <img src='assets/kombucha-bottle.webp' class='bottle-icon' alt=''></div></div><button id="start">TRY AGAIN →</button><button class="shop-btn" id="openWorlds">🌍 CHANGE LOCATION</button><button class="shop-btn" id="openShop">🦌 CARIBOU FLAVORS</button><div class="hint">TAP TO TRY AGAIN</div>`;bindMenu()}
 function update(dt){if(mode==='paused')return;clock+=dt;dog.animTime+=dt;dog.actionTime+=dt;shake=Math.max(0,shake-dt*15);
 if(mode!=='playing'){
 if(mode==='ready'){anim('idle');dog.y=ground-24*scale+Math.sin(clock*3)*2;}
@@ -586,11 +600,11 @@ ctx.strokeStyle='#643d31';ctx.lineWidth=1.7;ctx.beginPath();ctx.moveTo(44,-1);ct
 // bandana
 poly([[10,4],[20,7],[12,18]],'#e54d44');ctx.restore()}
 function drawDog(x,y,t){
-const caribouAtlas=skinImages[selectedSkin];if(!caribouAtlas||!caribouAtlas.complete||!caribouAtlas.naturalWidth){shiba(x,y,t);return}
+const caribouAtlas=getCaribouAtlas(selectedSkin);if(!caribouAtlas||!caribouAtlas.complete||!caribouAtlas.naturalWidth){shiba(x,y,t);return}
 let frame=dog.anim;
 if(frame==='run_1'){const idx=Math.floor(worldX/(33*scale))%4;frame=['run_1','run_2','run_3','run_4'][idx]}
 if(frame==='hurt'&&dog.animTime>.27)frame='game_over';
-// The double_jump artwork is already upside-down. Spin the upright airborne pose instead.
+// Use the airborne pose for the mid-air somersault.
 if(dog.jumps===2)frame='jump_air';
 const index=spriteFrames[frame]??0,fw=320,fh=320;
 const sx=(index%4)*fw,sy=Math.floor(index/4)*fh;
