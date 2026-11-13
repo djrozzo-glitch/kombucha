@@ -21,7 +21,7 @@ jobs:
           s=Path('index.html').read_text()
           script=s.split('<script>',1)[1].split('</script>',1)[0]
           Path('/tmp/kombucha-game.js').write_text(script)
-          for string in ["id:'classic'","id:'tarragon'","id:'raspberry'","price:0","price:25","price:50","kombucha-run-wallet","kombucha-run-owned","kombucha-run-skin","getCaribouAtlas"]:
+          for string in ["id:'original'","id:'blackcurrant'","id:'tarragon'","id:'raspberry'","price:0","price:25","price:50","price:75","kombucha-run-wallet","kombucha-run-owned","kombucha-run-skin","getCaribouAtlas"]:
               assert string in script, string
           assert 'Ninja Shiba' not in s
           print('Gameplay and save compatibility checks passed')
