@@ -22,9 +22,13 @@ button:focus-visible,input:focus-visible { outline:2px solid #ffe2a3; outline-of
 .secondary { color:#ffe6bc; background:#102837; border:1px solid #d4a56d8c; }
 .icon { display:grid; width:48px; height:48px; padding:0; place-items:center; border:0; background:none; }
 .icon img { width:100%; height:100%; }
-#sound,#hud { position:fixed; z-index:1; top:max(9px,env(safe-area-inset-top)); }
-#sound { right:max(10px,env(safe-area-inset-right)); }
-#hud { left:max(10px,env(safe-area-inset-left)); right:max(65px,calc(env(safe-area-inset-right) + 65px)); display:flex; align-items:center; justify-content:space-between; pointer-events:none; }
+#audio-controls,#hud { position:fixed; z-index:1; top:max(9px,env(safe-area-inset-top)); }
+#audio-controls { right:max(10px,env(safe-area-inset-right)); display:flex; gap:6px; }
+.audio-toggle { width:76px; min-height:44px; padding:4px; border:1px solid #d9ac727f; border-radius:10px; background:#081b2be5; color:#ffe6bc; font-size:.78rem; font-weight:700; line-height:1.15; }
+.audio-toggle span { display:block; margin-top:2px; color:#ffd497; font-size:.68rem; }
+.audio-toggle[aria-pressed=false] span { color:#c4ced6; }
+#hud { left:max(10px,env(safe-area-inset-left)); right:calc(max(10px,env(safe-area-inset-right)) + 166px); display:flex; align-items:center; justify-content:space-between; pointer-events:none; }
+#screen { padding-top:calc(max(9px,env(safe-area-inset-top)) + 52px); }
 #hud button { pointer-events:auto; }
 #score { display:flex; align-items:center; gap:5px; min-width:82px; padding:4px 13px; border:1px solid #d9ac727f; border-radius:22px; background:#081b2be5; font-weight:800; font-variant-numeric:tabular-nums; }
 #score img { height:25px; }
@@ -52,3 +56,37 @@ li span:last-child { color:#ffda9f; font-variant-numeric:tabular-nums; }
 .action img { width:28px; height:28px; }
 .rank-icon { display:block; width:25px; height:25px; }
 @media (max-height:460px) { .garland { display:none; } }
+
+/* Prevent Safari long-press text selection and callouts during gameplay. */
+html,body,main,#trail,#screen,#hud,button,img { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+#trail { -webkit-tap-highlight-color:transparent; touch-action:none; }
+button { -webkit-tap-highlight-color:transparent; }
+input { -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }
+
+/* iOS Safari: disable selection handles on images and interactive game UI. */
+html,body { -webkit-touch-callout:none !important; -webkit-user-select:none !important; user-select:none !important; overscroll-behavior:none; }
+img,canvas,button { -webkit-user-drag:none; -webkit-touch-callout:none !important; -webkit-user-select:none !important; user-select:none !important; }
+input { -webkit-user-select:text !important; user-select:text !important; }
+
+/* Apply selection suppression to every nested label and pseudo-element. */
+html body main, html body main *, html body main *::before, html body main *::after {
+  -webkit-user-select:none !important;
+  user-select:none !important;
+  -webkit-touch-callout:none !important;
+  -webkit-tap-highlight-color:transparent;
+}
+html body main input, html body main textarea {
+  -webkit-user-select:text !important;
+  user-select:text !important;
+  -webkit-touch-callout:default !important;
+}
+
+#submit-score { display:grid; gap:7px; margin:10px 0; text-align:left; }
+#submit-score label { font-size:.85rem; }
+#submit-score input { min-height:42px; }
+#submit-score .privacy-note { font-size:.75rem; line-height:1.4; color:#d8e5ed; margin:2px 0; }
+
+/* Cyrillic text and longer Russian button labels. */
+.panel { overflow-wrap:break-word; }
+.primary,.secondary { line-height:1.25; white-space:normal; }
+@media (max-width:390px) { .panel { padding:16px; } h2 { font-size:clamp(25px,7vw,34px); } #start small { font-size:.8rem; } }

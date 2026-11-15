@@ -2,7 +2,7 @@ import {createRun,step,score,HERO,RATE,BOTTLE_HEIGHT,obstacles} from './engine.m
 import {scoreOrigin} from './config.mjs';
 
 const $=id=>document.getElementById(id);
-const canvas=$('trail'), ctx=canvas.getContext('2d');
+const canvas=$('trail'), ctx=canvas.getContext('2d',{alpha:false});
 const root=new URL('../',import.meta.url);
 const img=path=>{
   const image=new Image();
@@ -22,25 +22,33 @@ const sceneTicks=15*RATE;
 const transitionTicks=2*RATE;
 const gallopFrames=[4,2,1,3];
 const audio=Object.fromEntries(['jump','double','bone','hit'].map(name=>[name,new Audio(new URL('audio/'+name+'.wav',root))]));
-const music=new Audio(new URL('audio/bg_music_loop.mp3',root));
+const music=new Audio(new URL('audio/caribou_theme.mp3',root));
+music.preload='metadata';
 music.loop=true;
 music.volume=.28;
-let enabled=get('kombucha-christmas-sound')!=='off';
+const legacySound=get('kombucha-christmas-sound');
+const musicKey='kombucha-christmas-music';
+const effectsKey='kombucha-christmas-effects';
+let musicEnabled=(get(musicKey)??legacySound)!=='off';
+let effectsEnabled=(get(effectsKey)??legacySound)!=='off';
 let mode='start', previousMenu='start', run=createRun(123), ticket=null, inputs=[], queued=false;
+let launchMenu=null;
 let last=0, lag=0, width=0, height=0, scale=1, ground=0;
 let latestScore=0, snowTime=0, boardRequest=0;
 const snow=Array.from({length:42},(_,i)=>({x:(i*.6180339)%1,y:(i*.37797)%1,r:.7+(i%5)*.31}));
 
 function get(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function set(key,value) { try { localStorage.setItem(key,value); } catch {} }
-function syncAudio() {
-  $('sound').setAttribute('aria-pressed',String(enabled));
-  $('sound').firstElementChild.src=new URL('ui/sound-'+(enabled?'on':'off')+'.png',root);
-  if(enabled&&mode==='playing') music.play().catch(()=>{});
+function syncMusic() {
+  if(musicEnabled&&(mode==='playing'||mode===launchMenu)) music.play().catch(()=>{});
   else music.pause();
 }
+function showAudioSetting(button,enabled) {
+  button.setAttribute('aria-pressed',String(enabled));
+  button.firstElementChild.textContent=enabled?'Вкл':'Выкл';
+}
 function fx(name) {
-  if(!enabled) return;
+  if(!effectsEnabled) return;
   const sound=audio[name];
   sound.currentTime=0;
   sound.volume=.47;
@@ -48,20 +56,22 @@ function fx(name) {
 }
 
 function show(next) {
+  const oldMode=mode;
   mode=next;
+  if(next==='paused'&&oldMode==='playing') draw();
   if(next!=='playing') queued=false;
   if(next!=='leaderboard') boardRequest++;
   $('screen').hidden=next==='playing'||next==='impact';
   $('screen').dataset.view=next;
   $('hud').hidden=next!=='playing';
   for(const id of ['start','paused','result','leaderboard']) $(id).hidden=id!==next;
-  syncAudio();
+  syncMusic();
 }
 
 function resize() {
   width=canvas.clientWidth;
   height=canvas.clientHeight;
-  const dpr=Math.min(devicePixelRatio||1,2);
+  const dpr=Math.min(devicePixelRatio||1,matchMedia('(pointer:coarse)').matches?1.25:2);
   canvas.width=Math.round(width*dpr);
   canvas.height=Math.round(height*dpr);
   ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -87,14 +97,17 @@ async function start() {
   $('play').disabled=$('retry').disabled=true;
   $('start-status').textContent='';
   $('retry-status').textContent='';
-  const launchMenu=mode;
+  const requestedFrom=mode;
+  launchMenu=requestedFrom;
   // Start audio in the click gesture, before waiting for the score service.
-  if(enabled) { music.currentTime=0; music.play().catch(()=>{}); }
+  music.currentTime=0;
+  syncMusic();
   const [artReady,nextTicket]=await Promise.all([essentialArt,api('run',{}).catch(()=>null)]);
+  launchMenu=null;
   $('play').disabled=$('retry').disabled=false;
-  if(mode!==launchMenu||!artReady) {
-    if(mode===launchMenu) $(mode==='start'?'start-status':'retry-status').textContent='Could not load game art. Reload the page to try again.';
-    syncAudio();
+  if(mode!==requestedFrom||!artReady) {
+    if(mode===requestedFrom) $(mode==='start'?'start-status':'retry-status').textContent='Не удалось загрузить игру. Обнови страницу и попробуй снова.';
+    syncMusic();
     return;
   }
   ticket=nextTicket;
@@ -105,14 +118,22 @@ async function start() {
   document.activeElement?.blur();
 }
 
+function russianPlural(n,one,few,many) {
+  const a=Math.abs(n)%100, b=a%10;
+  return a>=11&&a<=14?many:b===1?one:b>=2&&b<=4?few:many;
+}
+const bottleWord=n=>russianPlural(n,'бутылочка','бутылочки','бутылочек');
+const pointWord=n=>russianPlural(n,'очко','очка','очков');
+
 function finish() {
   const best=Math.max(Number(get('kombucha-christmas-best'))||0,score(run));
   set('kombucha-christmas-best',best);
   $('final').textContent=score(run);
-  $('details').textContent=run.bottles+' '+(run.bottles===1?'bottle':'bottles')+' · Personal best '+best+' pts';
+  $('details').textContent=run.bottles+' '+bottleWord(run.bottles)+' · Личный рекорд: '+best+' '+pointWord(best);
   $('nickname').value=get('kombucha-christmas-name')||'';
+  $('email').value=get('kombucha-christmas-email')||'';
   $('submit-score').hidden=!ticket||!run.bottles;
-  $('save-status').textContent=ticket?'':'Practice run · Online leaderboard unavailable.';
+  $('save-status').textContent=ticket?'':'Тренировочный забег · Таблица рекордов пока недоступна.';
   show('result');
 }
 
@@ -124,10 +145,17 @@ function tile(image,offset,y,w,h) {
 
 function landscape(image,offset) {
   if(!image.naturalWidth) return;
-  const ratio=image.naturalWidth/image.naturalHeight;
-  const h=Math.max(ground+height*.07,width/ratio);
-  const w=Math.round(h*ratio);
-  if(w>0) tile(image,offset,0,w,h);
+  // Cover the sky area without stretching or repeating a narrow slice on phones.
+  const iw=image.naturalWidth, ih=image.naturalHeight;
+  const targetHeight=ground+4;
+  const zoom=Math.max(width/iw,targetHeight/ih);
+  const sourceWidth=Math.min(iw,width/zoom);
+  const sourceHeight=Math.min(ih,targetHeight/zoom);
+  // Keep the horizon stable while gently panning across the original artwork.
+  const maxX=iw-sourceWidth;
+  const pan=maxX>0 ? (Math.sin(offset/2400)*.5+.5)*maxX : 0;
+  const sourceY=Math.max(0,ih-sourceHeight);
+  ctx.drawImage(image,pan,sourceY,sourceWidth,sourceHeight,0,0,width,targetHeight);
 }
 
 function draw() {
@@ -160,12 +188,6 @@ function draw() {
     if(x<-90||x>width+90) continue;
     if(item.bottle) {
       const y=ground-item.y*scale;
-      const radius=22*scale;
-      const glow=ctx.createRadialGradient(x,y,2,x,y,radius);
-      glow.addColorStop(0,'#ffcc7766');
-      glow.addColorStop(1,'#ffcc7700');
-      ctx.fillStyle=glow;
-      ctx.fillRect(x-radius,y-radius,radius*2,radius*2);
       const h=BOTTLE_HEIGHT*scale;
       const w=h*bottle.naturalWidth/bottle.naturalHeight;
       ctx.drawImage(bottle,x-w/2,y-h/2,w,h);
@@ -197,7 +219,7 @@ function draw() {
 }
 
 function animate(now) {
-  const elapsed=last?Math.min(100,now-last):0;
+  const elapsed=last?Math.min(66,now-last):0;
   last=now;
   if(mode==='playing') {
     lag+=elapsed;
@@ -205,7 +227,7 @@ function animate(now) {
     while(lag>=1000/RATE&&!run.over) {
       if(queued&&run.jumps<2) {
         inputs.push(run.tick);
-        fx(run.jumps?'double':'jump');
+        if(!matchMedia('(pointer:coarse)').matches) fx(run.jumps?'double':'jump');
       }
       step(run,queued);
       queued=false;
@@ -223,17 +245,22 @@ function animate(now) {
       setTimeout(finish,180);
     }
   }
-  if(mode==='playing'||mode==='paused') draw();
+  if(mode==='playing') draw();
   requestAnimationFrame(animate);
 }
 
 function jump() {
   if(mode==='playing') queued=true;
 }
-canvas.addEventListener('pointerdown',jump);
+canvas.addEventListener('pointerdown',e=>{ e.preventDefault(); jump(); },{passive:false});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('selectstart',e=>{if(e.target instanceof Element&&!e.target.closest('input,textarea'))e.preventDefault();});
+document.addEventListener('contextmenu',e=>{if(e.target instanceof Element&&!e.target.closest('input,textarea'))e.preventDefault();});
+document.querySelectorAll('img').forEach(image=>{image.draggable=false;});
 window.addEventListener('keydown',e=>{
   if(e.repeat||e.target instanceof HTMLInputElement) return;
   if(mode==='playing'&&['Space','ArrowUp'].includes(e.code)) {
+    if(e.code==='Space'&&e.target instanceof HTMLButtonElement&&e.target.matches(':focus-visible')) return;
     e.preventDefault(); jump();
   }
   if(e.code==='Escape'&&(mode==='playing'||mode==='paused')) {
@@ -247,10 +274,20 @@ for(const id of ['play','retry']) $(id).onclick=start;
 $('pause').onclick=()=>show('paused');
 $('resume').onclick=()=>show('playing');
 $('quit').onclick=()=>show('start');
-$('sound').onclick=()=>{
-  enabled=!enabled;
-  set('kombucha-christmas-sound',enabled?'on':'off');
-  syncAudio();
+const musicToggle=$('music-toggle'), effectsToggle=$('effects-toggle');
+showAudioSetting(musicToggle,musicEnabled);
+showAudioSetting(effectsToggle,effectsEnabled);
+musicToggle.onclick=()=>{
+  musicEnabled=!musicEnabled;
+  set(musicKey,musicEnabled?'on':'off');
+  showAudioSetting(musicToggle,musicEnabled);
+  syncMusic();
+};
+effectsToggle.onclick=()=>{
+  effectsEnabled=!effectsEnabled;
+  set(effectsKey,effectsEnabled?'on':'off');
+  showAudioSetting(effectsToggle,effectsEnabled);
+  if(!effectsEnabled) for(const sound of Object.values(audio)) sound.pause();
 };
 $('back').onclick=()=>show(previousMenu);
 
@@ -259,13 +296,13 @@ for(const button of document.querySelectorAll('.board')) button.onclick=async()=
   show('leaderboard');
   const request=++boardRequest;
   $('leaders').replaceChildren();
-  $('board-status').textContent='Loading scores…';
+  $('board-status').textContent='Загружаем рекорды…';
   const data=await api('scores').catch(()=>null);
   if(request!==boardRequest) return;
-  $('board-status').textContent=data?(data.entries.length?'':'No scores yet.'):'Online leaderboard unavailable.';
+  $('board-status').textContent=data?(data.entries.length?'':'Пока ни одного рекорда. Будешь первым?'):'Не удалось загрузить таблицу рекордов.';
   for(const [index,entry] of (data?.entries||[]).entries()) {
     const li=document.createElement('li');
-    for(const value of [index+1,entry.name,entry.score+' pts']) {
+    for(const value of [index+1,entry.name,entry.score+' '+pointWord(entry.score)]) {
       const span=document.createElement('span');
       span.textContent=value;
       li.append(span);
@@ -274,7 +311,7 @@ for(const button of document.querySelectorAll('.board')) button.onclick=async()=
       const podium=document.createElement('img');
       podium.src=new URL('ui/podium.png',root);
       podium.className='rank-icon';
-      podium.alt='1st';
+      podium.alt='Первое место';
       li.firstElementChild.replaceChildren(podium);
     }
     $('leaders').append(li);
@@ -286,21 +323,24 @@ $('submit-score').onsubmit=async e=>{
   if(!ticket) return;
   const button=e.target.querySelector('button');
   const name=$('nickname').value.trim().normalize('NFKC');
+  const email=$('email').value.trim();
   if(!name||name.length>24||/[\p{Cc}\p{Cf}]/u.test(name)) {
-    $('save-status').textContent='Enter a valid name up to 24 characters.';
+    $('save-status').textContent='Укажи имя длиной до 24 символов.';
     return;
   }
+  if(!$('email').validity.valid||!email) { $('save-status').textContent='Проверь адрес электронной почты.'; return; }
   const resultTicket=ticket;
   button.disabled=true;
   $('retry').disabled=true;
-  $('save-status').textContent='Verifying run…';
+  $('save-status').textContent='Проверяем результат…';
   try {
-    await api('scores',{token:resultTicket.token,inputs,endTick:run.tick,name});
+    await api('scores',{token:resultTicket.token,inputs,endTick:run.tick,name,email});
     set('kombucha-christmas-name',name);
+    set('kombucha-christmas-email',email);
     $('submit-score').hidden=true;
-    $('save-status').textContent='Score added to the leaderboard.';
+    $('save-status').textContent='Готово! Твой результат в таблице рекордов.';
   } catch {
-    $('save-status').textContent='Could not save this score. Try again.';
+    $('save-status').textContent='Не удалось сохранить результат. Попробуй ещё раз.';
   } finally {
     button.disabled=false;
     $('retry').disabled=false;
