@@ -1,0 +1,39 @@
+name: Validate Kombucha Christmas Run
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check scripts and runtime assets
+        run: |
+          for script in christmas/*.mjs server/*.mjs; do node --check "$script" || exit; done
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          for filename, pattern in [('index.html', r'(?:src|href)="([^"]+)"'),
+                                    ('christmas/style.css', r"url\('([^']+)'\)")]:
+              path = Path(filename)
+              for reference in re.findall(pattern, path.read_text()):
+                  assert (path.parent / reference).is_file(), reference
+          atlas = json.loads(Path('kombucha-atlas.json').read_text())
+          assert Path(atlas['image']).is_file()
+          assert len(atlas['frames']) == 12
+          assert all(Path(frame['file']).is_file() for frame in atlas['frames'])
+          manifest = Path('christmas/app.webmanifest')
+          assert all((manifest.parent / icon['src']).is_file()
+                     for icon in json.loads(manifest.read_text())['icons'])
+          PY
