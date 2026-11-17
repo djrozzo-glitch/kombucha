@@ -27,7 +27,6 @@ const sceneOrder=[
 const atlas=img('kombucha-atlas.png');
 const terrain=img('terrain/snow.webp');
 const bottle=img('assets/kombucha-bottle.webp');
-const spark=img('effects/pickup-spark.png');
 const puff=img('effects/snow-puff.png');
 const snowflake=img('effects/snowflake.png');
 const obstacleArt=obstacles.map(({file})=>img('obstacles/'+file));
@@ -217,8 +216,8 @@ function draw() {
       ctx.drawImage(bottle,x-w/2,y-h/2,w,h);
     } else {
       const {crop,width,height}=obstacles[item.kind];
-      const w=(item.tall ? width*1.2 : width)*scale;
-      const h=(item.tall ? height*1.2 : height)*scale;
+      const w=(item.tall ? width*1.44 : width)*scale;
+      const h=(item.tall ? height*1.44 : height)*scale;
       const art=obstacleArt[item.kind];
       // Always render a visible obstacle, even if an asset is still loading.
       // A subtle snow shadow anchors small sprites to the running surface.
@@ -248,7 +247,6 @@ function draw() {
   else if(run.jumps===2) frame=7;
   else if(run.jumps) frame=run.vy<-5?5:6;
   else if(run.tick-run.landed<6) frame=8;
-  // Pickup sparkle overlays the continuing gallop; never freeze the legs.
   if(atlas.naturalWidth) {
     // A full playful somersault during the second jump, without altering collision physics.
     const spin=run.jumps===2 ? (Math.max(0,run.tick-(run.flipStart??run.tick))/25)*Math.PI*2 : 0;
@@ -258,10 +256,6 @@ function draw() {
     ctx.rotate(spin);
     ctx.drawImage(atlas,(frame%4)*320,Math.floor(frame/4)*320,320,320,-size/2,-size/2,size,size);
     ctx.restore();
-  }
-  if(run.tick-run.picked<15&&spark.naturalWidth) {
-    ctx.globalAlpha=1-(run.tick-run.picked)/15;
-    ctx.drawImage(spark,heroX+8*scale,ground+(run.y-70)*scale,54*scale,54*scale);
   }
   if(run.tick-run.landed<12&&puff.naturalWidth) {
     ctx.globalAlpha=.7*(1-(run.tick-run.landed)/12);
