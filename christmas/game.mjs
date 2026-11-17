@@ -10,6 +10,14 @@ const img=path=>{
   return image;
 };
 const panoramas=['woods','village','aurora'].map(name=>img('backgrounds/'+name+'.webp'));
+// Scenery catalog: base + single-easter-egg variants. Missing assets fall back safely.
+const sceneryCatalog=[
+  ['backgrounds/woods.webp','backgrounds/easter/woods_easter.webp','backgrounds/variants/C_forest_3_santa_courier.webp','backgrounds/variants/C_forest_4_green_santa.webp','backgrounds/variants/C_forest_5_reindeer_sweater.webp'],
+  ['backgrounds/village.webp','backgrounds/easter/village_easter.webp','backgrounds/variants/B_village_3_suitcase.webp','backgrounds/variants/B_village_4_mailbox.webp','backgrounds/variants/B_village_5_scarf_raven.webp'],
+  ['backgrounds/aurora.webp','backgrounds/easter/aurora_easter.webp','backgrounds/variants/A_lake_3_red_balloon.webp','backgrounds/variants/A_lake_4_snow_boat.webp','backgrounds/variants/A_lake_5_smoke_heart.webp']
+].map(paths=>paths.map(img));
+// The SVG composites relied on external images, blocked in canvas on mobile.
+// Always draw the verified WebP panorama first.
 const atlas=img('kombucha-atlas.png');
 const terrain=img('terrain/snow.webp');
 const bottle=img('assets/kombucha-bottle.webp');
@@ -18,7 +26,10 @@ const puff=img('effects/snow-puff.png');
 const snowflake=img('effects/snowflake.png');
 const obstacleArt=obstacles.map(({file})=>img('obstacles/'+file));
 const essentialArt=Promise.all([...panoramas,atlas,terrain,bottle,...obstacleArt].map(image=>image.decode())).then(()=>true,()=>false);
-const sceneTicks=15*RATE;
+const sceneTicks=12*RATE;
+// Decorative background surprises, independent from the verified run physics.
+const easterEggs=['window-boy.svg','tv-address.svg','salad.svg','green-santa.svg'];
+const eggArt=easterEggs.map(name=>img('backgrounds/easter/'+name));
 const transitionTicks=2*RATE;
 const gallopFrames=[4,2,1,3];
 const audio=Object.fromEntries(['jump','double','bone','hit'].map(name=>[name,new Audio(new URL('audio/'+name+'.wav',root))]));
@@ -144,17 +155,13 @@ function tile(image,offset,y,w,h) {
 
 function landscape(image,offset) {
   if(!image.naturalWidth) return;
-  // Cover the sky area without stretching or repeating a narrow slice on phones.
-  const iw=image.naturalWidth, ih=image.naturalHeight;
+  // A continuously scrolling scenery strip; decorative objects share its camera.
   const targetHeight=ground+4;
-  const zoom=Math.max(width/iw,targetHeight/ih);
-  const sourceWidth=Math.min(iw,width/zoom);
-  const sourceHeight=Math.min(ih,targetHeight/zoom);
-  // Keep the horizon stable while gently panning across the original artwork.
-  const maxX=iw-sourceWidth;
-  const pan=maxX>0 ? (Math.sin(offset/2400)*.5+.5)*maxX : 0;
-  const sourceY=Math.max(0,ih-sourceHeight);
-  ctx.drawImage(image,pan,sourceY,sourceWidth,sourceHeight,0,0,width,targetHeight);
+  const ratio=targetHeight/image.naturalHeight;
+  const stripWidth=Math.max(width,image.naturalWidth*ratio);
+  const x0=-((offset%stripWidth+stripWidth)%stripWidth);
+  for(let x=x0-stripWidth;x<width;x+=stripWidth)
+    ctx.drawImage(image,x,0,stripWidth,targetHeight);
 }
 
 function draw() {
@@ -164,9 +171,19 @@ function draw() {
   const travel=run.distance*scale*.46;
   ctx.fillStyle='#132d48';
   ctx.fillRect(0,0,width,height);
-  landscape(panoramas[zone%3],travel);
+  // Reliable baseline: paint the original scenery first.
+  // Optional complete WebP artwork may replace a scene only after decoding.
+  const sceneImage=index=>{
+    const family=index%3;
+    // Cycle through five distinct scenes per setting, one easter egg at most.
+    // Do not use incomplete/failed image resources in Canvas.
+    const variantIndex=Math.floor(index/3)%sceneryCatalog[family].length;
+    const candidate=sceneryCatalog[family][variantIndex];
+    return candidate?.complete && candidate.naturalWidth>0 ? candidate : panoramas[family];
+  };
+  landscape(sceneImage(zone),travel);
   ctx.globalAlpha=blend*blend*(3-2*blend);
-  landscape(panoramas[(zone+1)%3],travel);
+  landscape(sceneImage(zone+1),travel);
   ctx.globalAlpha=1;
   ctx.fillStyle='#b1cfe6';
   ctx.fillRect(0,ground+2,width,height-ground);
@@ -181,6 +198,7 @@ function draw() {
     else ctx.fillRect(x,y,flake.r,flake.r);
   }
   ctx.globalAlpha=1;
+  // One short background cameo every 20–30 seconds.
   const heroX=Math.min(250,width*.24);
   for(const item of run.objects) {
     const x=heroX+(item.x-run.distance)*scale;
@@ -204,8 +222,16 @@ function draw() {
   else if(run.jumps) frame=run.vy<-5?5:6;
   else if(run.tick-run.landed<6) frame=8;
   else if(run.tick-run.picked<6) frame=10;
-  if(atlas.naturalWidth) ctx.drawImage(atlas,(frame%4)*320,Math.floor(frame/4)*320,320,320,
-    heroX-size/2,ground+run.y*scale-size*258/320,size,size);
+  if(atlas.naturalWidth) {
+    // A full playful somersault during the second jump, without altering collision physics.
+    const spin=run.jumps===2 ? (Math.max(0,run.tick-(run.flipStart??run.tick))/25)*Math.PI*2 : 0;
+    const cx=heroX, cy=ground+run.y*scale-size*258/320+size/2;
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(spin);
+    ctx.drawImage(atlas,(frame%4)*320,Math.floor(frame/4)*320,320,320,-size/2,-size/2,size,size);
+    ctx.restore();
+  }
   if(run.tick-run.picked<15&&spark.naturalWidth) {
     ctx.globalAlpha=1-(run.tick-run.picked)/15;
     ctx.drawImage(spark,heroX+8*scale,ground+(run.y-70)*scale,54*scale,54*scale);
@@ -228,6 +254,7 @@ function animate(now) {
         inputs.push(run.tick);
         if(!matchMedia('(pointer:coarse)').matches) fx(run.jumps?'double':'jump');
       }
+      if(queued&&run.jumps===1) run.flipStart=run.tick;
       step(run,queued);
       queued=false;
       lag-=1000/RATE;
