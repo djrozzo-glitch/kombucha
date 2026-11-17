@@ -131,13 +131,33 @@ function validName(s){return typeof s==='string'&&s.trim().length>0&&s.trim().le
 function validEmail(s){return typeof s==='string'&&s.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);}
 const waves = {route:'/api/waves-of-light', tokenType:'waves', table:'waves_scores', maxScore:10000000, minimumSeconds:0};
 const leMartini = {route:'/api/le-martini', tokenType:'martini', table:'le_martini_scores', maxScore:340, minimumSeconds:87};
+const leMartiniEndless = {
+ route:'/api/le-martini-endless', tokenType:'martini-endless', table:'le_martini_endless_runs',
+ maxScore:Number.MAX_SAFE_INTEGER, minimumSeconds:0, maxAgeSeconds:Infinity, longestShift:true
+};
+let endlessTableReady = false;
+async function ensureEndlessTable(db) {
+ if(endlessTableReady) return;
+ await db.prepare(`CREATE TABLE IF NOT EXISTS le_martini_endless_runs (
+  run_id TEXT PRIMARY KEY,
+  nickname TEXT NOT NULL,
+  score INTEGER NOT NULL CHECK(score > 0),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+ )`).run();
+ endlessTableReady = true;
+}
 const leMartiniOrigins = new Set(['https://weirdflex.online','https://djrozzo-glitch.github.io']);
 async function arcadeLeaderboard(request, env, path, game, reply) {
  const {route, tokenType, table, maxScore, minimumSeconds} = game;
  const scores = path === route + '/scores';
  const run = path === route + '/run';
  if(scores&&request.method==='GET'){
-  const {results}=await env.db.prepare(`SELECT nickname AS name, score FROM ${table} ORDER BY score DESC, created_at ASC, run_id ASC LIMIT 10`).all();
+  const candidates = game.longestShift
+   ? `(SELECT nickname, score, created_at, run_id, ROW_NUMBER() OVER (
+       PARTITION BY nickname COLLATE NOCASE ORDER BY score DESC, created_at ASC, run_id ASC
+      ) AS player_rank FROM ${table}) WHERE player_rank=1`
+   : table;
+  const {results}=await env.db.prepare(`SELECT nickname AS name, score FROM ${candidates} ORDER BY score DESC, created_at ASC, run_id ASC LIMIT 10`).all();
   return reply({entries:results});
  }
  if(request.method!=='POST'||(!run&&!scores))return reply({error:'Not found'},404);
@@ -160,7 +180,7 @@ async function arcadeLeaderboard(request, env, path, game, reply) {
  if(parts.length!==4||parts[0]!==tokenType||await signature(env.RUN_SECRET,parts.slice(0,3).join('.'))!==parts[3])
   return reply({error:'Invalid run token'},403);
  const seconds=(Date.now()-Number(parts[1]))/1000;
- if(!Number.isFinite(seconds)||seconds<minimumSeconds||seconds>86400||(tokenType==='waves'&&score>10000+seconds*5000))
+ if(!Number.isFinite(seconds)||seconds<minimumSeconds||seconds>(game.maxAgeSeconds??86400)||(game.longestShift&&score>seconds+10)||(tokenType==='waves'&&score>10000+seconds*5000))
   return reply({error:'Invalid run duration or score'},400);
  const result=await env.db.prepare(`INSERT INTO ${table}(run_id,nickname,score) VALUES(?,?,?) ON CONFLICT(run_id) DO NOTHING`)
   .bind(parts[2],name.trim(),score).run();
@@ -171,7 +191,7 @@ async function arcadeLeaderboard(request, env, path, game, reply) {
  return reply({ok:true});
 }
 
-async function serveLeMartini(request, env, path) {
+async function serveLeMartini(request, env, path, game) {
  const origin = request.headers.get('Origin');
  const headers = {...cors, 'Access-Control-Allow-Origin':origin || 'https://weirdflex.online'};
  const reply = (value,status=200) => new Response(JSON.stringify(value), {
@@ -181,7 +201,8 @@ async function serveLeMartini(request, env, path) {
  if(request.method==='OPTIONS') return new Response(null,{status:204,headers});
  if(!env.db) return reply({error:'D1 binding missing: expected db'},503);
  try {
-  return await arcadeLeaderboard(request,env,path,leMartini,reply);
+  if(game.longestShift && path===game.route+'/scores') await ensureEndlessTable(env.db);
+  return await arcadeLeaderboard(request,env,path,game,reply);
  } catch(error) {
   console.error(error);
   return reply({error:'Request failed'},500);
@@ -192,7 +213,8 @@ export default {
  async fetch(request,env){
   const url=new URL(request.url);
   const path=url.pathname.replace(/\/$/,'');
-  if(path.startsWith(leMartini.route+'/'))return serveLeMartini(request,env,path);
+  if(path.startsWith(leMartiniEndless.route+'/'))return serveLeMartini(request,env,path,leMartiniEndless);
+  if(path.startsWith(leMartini.route+'/'))return serveLeMartini(request,env,path,leMartini);
   const origin=request.headers.get('Origin');
   if(origin&&origin!=='https://weirdflex.online')return json({error:'Origin not allowed'},403);
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
