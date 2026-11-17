@@ -248,7 +248,7 @@ function draw() {
   else if(run.jumps===2) frame=7;
   else if(run.jumps) frame=run.vy<-5?5:6;
   else if(run.tick-run.landed<6) frame=8;
-  else if(run.tick-run.picked<6) frame=10;
+  // Pickup sparkle overlays the continuing gallop; never freeze the legs.
   if(atlas.naturalWidth) {
     // A full playful somersault during the second jump, without altering collision physics.
     const spin=run.jumps===2 ? (Math.max(0,run.tick-(run.flipStart??run.tick))/25)*Math.PI*2 : 0;
