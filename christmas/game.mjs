@@ -10,12 +10,18 @@ const img=path=>{
   return image;
 };
 const panoramas=['woods','village','aurora'].map(name=>img('backgrounds/'+name+'.webp'));
-// Scenery catalog: original + three sparse single-easter-egg variants; legacy crowded panoramas excluded. Missing assets fall back safely.
+// Scenery families: each image has at most one Easter egg.
+// Village opens with three consecutive versions of the same winter cottage.
 const sceneryCatalog=[
   ['backgrounds/woods.webp','backgrounds/variants/C_forest_3_santa_courier.webp','backgrounds/variants/C_forest_4_green_santa.webp','backgrounds/variants/C_forest_5_reindeer_sweater.webp'],
-  ['backgrounds/village.webp','backgrounds/variants/B_village_3_suitcase.webp','backgrounds/variants/B_village_4_mailbox.webp','backgrounds/variants/B_village_5_scarf_raven.webp'],
+  ['backgrounds/variants/B_village_0_cottage.webp','backgrounds/variants/B_village_1_putin_window.webp','backgrounds/variants/B_village_2_home_alone_window.webp','backgrounds/variants/B_village_3_suitcase.webp','backgrounds/variants/B_village_4_mailbox.webp','backgrounds/variants/B_village_5_scarf_raven.webp'],
   ['backgrounds/aurora.webp','backgrounds/variants/A_lake_3_red_balloon.webp','backgrounds/variants/A_lake_4_snow_boat.webp','backgrounds/variants/A_lake_5_smoke_heart.webp']
 ].map(paths=>paths.map(img));
+const sceneOrder=[
+  ...[0,1,2,3].map(variant=>({family:0,variant})),
+  ...[0,1,2,3,4,5].map(variant=>({family:1,variant})),
+  ...[0,1,2,3].map(variant=>({family:2,variant}))
+];
 // The SVG composites relied on external images, blocked in canvas on mobile.
 // Always draw the verified WebP panorama first.
 const atlas=img('kombucha-atlas.png');
@@ -33,6 +39,25 @@ const eggArt=easterEggs.map(name=>img('backgrounds/easter/'+name));
 const transitionTicks=2*RATE;
 const gallopFrames=[4,2,1,3];
 const audio=Object.fromEntries(['jump','double','bone','hit'].map(name=>[name,new Audio(new URL('audio/'+name+'.wav',root))]));
+ // Decode the frequent bottle pickup once; never invoke HTMLAudioElement.play() per bottle.
+const PickupAudioContext=window.AudioContext||window.webkitAudioContext;
+let pickupContext=null, pickupBuffer=null;
+if(PickupAudioContext) {
+  try {
+    pickupContext=new PickupAudioContext();
+    fetch(new URL('audio/bone.wav',root))
+      .then(response=>{if(!response.ok) throw Error('Pickup audio unavailable');return response.arrayBuffer();})
+      .then(bytes=>pickupContext.decodeAudioData(bytes))
+      .then(buffer=>{pickupBuffer=buffer;})
+      .catch(()=>{pickupBuffer=null;});
+  } catch { pickupContext=null; }
+}
+function unlockPickupAudio() {
+  if(pickupContext?.state==='suspended') pickupContext.resume().catch(()=>{});
+}
+document.addEventListener('pointerdown',unlockPickupAudio,{passive:true});
+document.addEventListener('keydown',unlockPickupAudio);
+
 const music=new Audio(new URL('audio/caribou_theme.mp3',root));
 music.preload='metadata';
 music.loop=true;
@@ -59,6 +84,17 @@ function showAudioSetting(button,enabled) {
 }
 function fx(name) {
   if(!effectsEnabled) return;
+  if(name==='bone') {
+    // Fire-and-forget Web Audio buffer: no media-element seek or decode on the game frame.
+    if(!pickupContext||!pickupBuffer||pickupContext.state!=='running') return;
+    const source=pickupContext.createBufferSource();
+    const gain=pickupContext.createGain();
+    source.buffer=pickupBuffer;
+    gain.gain.value=.235;
+    source.connect(gain).connect(pickupContext.destination);
+    source.start();
+    return;
+  }
   const sound=audio[name];
   sound.currentTime=0;
   sound.volume=.235;
@@ -155,28 +191,14 @@ function tile(image,offset,y,w,h) {
 
 function landscape(image,offset) {
   if(!image.naturalWidth) return;
-  // A continuously scrolling scenery strip; decorative objects share its camera.
-  // Preserve the native image aspect ratio. The old Math.max(width,...)
-  // stretched narrow panorama variants horizontally on wide screens.
-  // Scale by height, repeat horizontally, and keep the snowline aligned.
+  // Fit every panorama to the full scenery height with uniform scaling.
+  // No artificial sky strip and no vertical or horizontal distortion.
   const targetHeight=ground+4;
-  // The new 3:1 panoramas were composed for a shallower scenery strip.
-  // Fitting them to the entire viewport height makes characters gigantic.
-  // Render by intended world scale instead, bottom-aligned with a soft sky
-  // extension above. This keeps characters and trees at a natural size.
-  const isVariant=image.src.includes('/backgrounds/variants/');
-  const drawHeight=isVariant ? targetHeight*.76 : targetHeight;
+  const drawHeight=targetHeight;
   const stripWidth=image.naturalWidth*drawHeight/image.naturalHeight;
   if(!Number.isFinite(stripWidth)||stripWidth<=0) return;
-  const y=targetHeight-drawHeight;
+  const y=0;
   const x0=-((offset%stripWidth+stripWidth)%stripWidth);
-  if(isVariant) {
-    const sky=ctx.createLinearGradient(0,0,0,y+25);
-    sky.addColorStop(0,'#071b30');
-    sky.addColorStop(1,'#102b43');
-    ctx.fillStyle=sky;
-    ctx.fillRect(0,0,width,y+25);
-  }
   for(let x=x0-stripWidth;x<width;x+=stripWidth)
     ctx.drawImage(image,x,y,stripWidth+.5,drawHeight);
 }
@@ -191,11 +213,9 @@ function draw() {
   // Reliable baseline: paint the original scenery first.
   // Optional complete WebP artwork may replace a scene only after decoding.
   const sceneImage=index=>{
-    const family=Math.floor(index/4)%3;
-    // Cycle through four scenes per setting (one original + three sparse variants).
-    // Do not use incomplete/failed image resources in Canvas.
-    const variantIndex=index%sceneryCatalog[family].length;
-    const candidate=sceneryCatalog[family][variantIndex];
+    const {family,variant}=sceneOrder[((index%sceneOrder.length)+sceneOrder.length)%sceneOrder.length];
+    const candidate=sceneryCatalog[family][variant];
+    // Avoid blank frames while optional images load or if deployment is delayed.
     return candidate?.complete && candidate.naturalWidth>0 ? candidate : panoramas[family];
   };
   landscape(sceneImage(zone),travel);
@@ -227,18 +247,37 @@ function draw() {
       ctx.drawImage(bottle,x-w/2,y-h/2,w,h);
     } else {
       const {crop,width,height}=obstacles[item.kind];
-      const w=width*scale, h=height*scale;
-      ctx.drawImage(obstacleArt[item.kind],...crop,x-w/2,ground-h,w,h);
+      const w=(item.tall ? width*1.44 : width)*scale;
+      const h=(item.tall ? height*1.44 : height)*scale;
+      const art=obstacleArt[item.kind];
+      // Always render a visible obstacle, even if an asset is still loading.
+      // A subtle snow shadow anchors small sprites to the running surface.
+      ctx.save();
+      ctx.fillStyle='rgba(7,20,32,.48)';
+      ctx.beginPath();
+      ctx.ellipse(x,ground-2*scale,Math.max(14,w*.46),Math.max(3,5*scale),0,0,Math.PI*2);
+      ctx.fill();
+      if(art?.complete && art.naturalWidth>0) {
+        ctx.drawImage(art,...crop,x-w/2,ground-h,w,h);
+      } else {
+        ctx.fillStyle='#a4d3df';
+        ctx.strokeStyle='#24445a';
+        ctx.lineWidth=Math.max(2,3*scale);
+        ctx.beginPath();
+        ctx.roundRect(x-w/2,ground-h,w,h,Math.min(12,w*.18));
+        ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
     }
   }
   const size=HERO*1.52*scale;
-  let frame=gallopFrames[Math.floor(run.distance/20)%gallopFrames.length];
+  // Fixed 10 FPS gallop: game speed changes travel, not leg animation cadence.
+  let frame=gallopFrames[Math.floor(run.tick/(RATE/10))%gallopFrames.length];
   if(run.over) frame=9;
   else if(run.tick<5) frame=0;
   else if(run.jumps===2) frame=7;
   else if(run.jumps) frame=run.vy<-5?5:6;
   else if(run.tick-run.landed<6) frame=8;
-  else if(run.tick-run.picked<6) frame=10;
   if(atlas.naturalWidth) {
     // A full playful somersault during the second jump, without altering collision physics.
     const spin=run.jumps===2 ? (Math.max(0,run.tick-(run.flipStart??run.tick))/25)*Math.PI*2 : 0;
@@ -250,8 +289,9 @@ function draw() {
     ctx.restore();
   }
   if(run.tick-run.picked<15&&spark.naturalWidth) {
-    ctx.globalAlpha=1-(run.tick-run.picked)/15;
+    ctx.globalAlpha=Math.max(0,1-(run.tick-run.picked)/15);
     ctx.drawImage(spark,heroX+8*scale,ground+(run.y-70)*scale,54*scale,54*scale);
+    ctx.globalAlpha=1;
   }
   if(run.tick-run.landed<12&&puff.naturalWidth) {
     ctx.globalAlpha=.7*(1-(run.tick-run.landed)/12);
